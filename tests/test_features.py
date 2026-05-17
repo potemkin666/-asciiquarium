@@ -144,3 +144,44 @@ def test_aquarium_reproducible_with_seed_and_options() -> None:
     snap1 = [(s.tag, round(s.x, 3), s.y) for s in a1.scene.sprites]
     snap2 = [(s.tag, round(s.x, 3), s.y) for s in a2.scene.sprites]
     assert snap1 == snap2
+
+
+def test_bubble_pops_at_waterline() -> None:
+    """Bubbles use the kill_above_y policy and die at the waterline."""
+    from asciiquarium import sprites as art
+    from asciiquarium.aquarium import add_bubble
+
+    aq = Aquarium(80, 30, seed=1)
+    waterline_bottom = 5 + len(art.WATERLINE_SEGMENTS)
+    # Spawn a bubble well below the waterline and let it rise.
+    n_before = len(aq.scene.sprites_with_tag("bubble"))
+    add_bubble(aq.scene, aq.rng, x=10, y=waterline_bottom + 3)
+    bubble = aq.scene.sprites_with_tag("bubble")[n_before]
+    assert bubble.cull_policy == "kill_above_y"
+    assert bubble.cull_y == float(waterline_bottom)
+    # Force-rise above the waterline and step once.
+    bubble.y = waterline_bottom - 1.0
+    aq.step(0.0001)
+    assert not bubble.alive
+    assert bubble not in aq.scene.sprites
+
+
+def test_aquarium_default_sprite_cap_is_set() -> None:
+    aq = Aquarium(80, 30, seed=1)
+    assert aq.scene.max_sprites is not None
+    assert aq.scene.max_sprites >= 64
+    # Cap is derived from grid area.
+    assert aq.scene.max_sprites == max(64, (80 * 30) // 40)
+
+
+def test_aquarium_large_grid_cap_prevents_unbounded_particle_growth() -> None:
+    aq = Aquarium(80, 30, seed=1)
+    cap = aq.scene.max_sprites
+    assert cap is not None
+    # Force many bubble spawns; the cap should keep total live sprites bounded.
+    from asciiquarium.aquarium import add_bubble
+
+    for i in range(cap * 3):
+        add_bubble(aq.scene, aq.rng, x=i % aq.width, y=aq.height - 2)
+    live = [s for s in aq.scene.sprites if s.alive]
+    assert len(live) <= cap

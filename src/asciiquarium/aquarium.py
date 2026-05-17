@@ -203,6 +203,9 @@ def _spawn_replacement_factory(scene: Scene, rng: random.Random, *, include_koi:
 
 
 def add_bubble(scene: Scene, rng: random.Random, x: int, y: int) -> None:
+    # Bubbles rise and "pop" the moment they reach the waterline rather than
+    # drifting silently off the top of the grid.
+    waterline_top = 5  # y of the topmost waterline row (see add_background)
     sprite = Sprite(
         art=".",
         mask="C",
@@ -211,6 +214,8 @@ def add_bubble(scene: Scene, rng: random.Random, x: int, y: int) -> None:
         vy=-rng.uniform(3.0, 5.0),
         depth=DEPTH_BUBBLE,
         tag="bubble",
+        cull_policy="kill_above_y",
+        cull_y=float(waterline_top + len(art.WATERLINE_SEGMENTS)),
     )
     scene.add(sprite)
 
@@ -334,6 +339,9 @@ def add_sakura_petal(scene: Scene, rng: random.Random) -> Sprite:
         vy=rng.uniform(1.0, 2.5),
         depth=DEPTH_SAKURA,
         tag="sakura",
+        # Petals exist *above* the waterline and pop the moment they hit it.
+        cull_policy="kill_below_y",
+        cull_y=5.0,
     )
     scene.add(sprite)
     return sprite
@@ -478,6 +486,10 @@ class Aquarium:
         options: AquariumOptions | None = None,
     ) -> None:
         self.scene = Scene(width, height)
+        # Cap total live sprite count so very large terminals don't accrete
+        # unbounded particles. Derived from grid area (one sprite per ~40
+        # cells), with a sensible floor so small grids still get traffic.
+        self.scene.max_sprites = max(64, (width * height) // 40)
         self.options = options or AquariumOptions()
         self.rng = rng if rng is not None else random.Random(seed)
         self._spawner = _Spawner()
@@ -516,7 +528,6 @@ class Aquarium:
         self._maybe_spawn_bubbles(dt)
         self._maybe_spawn_random_events(dt)
         self._update_caustics()
-        self._cull_sakura()
         if self.options.japanese and self.options.enable_bell:
             self._update_shishi_odoshi(dt)
 
@@ -530,13 +541,6 @@ class Aquarium:
         # sprite each frame.
         self._caustics.art = new_art
         self._caustics._lines = [new_art]
-
-    def _cull_sakura(self) -> None:
-        # Sakura petals die when they reach the waterline (top of the
-        # underwater band, ~ row 5).
-        for s in self.scene.sprites_with_tag("sakura"):
-            if s.y >= 5:
-                s.kill()
 
     def _update_shishi_odoshi(self, dt: float) -> None:
         sp = self._spawner
