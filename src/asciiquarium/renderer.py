@@ -14,6 +14,7 @@ import pygame
 from . import colors
 from .aquarium import BIOMES, Aquarium, AquariumOptions
 from .engine import Grid
+from .state import AquariumState
 
 DEFAULT_GRID_W = 132
 DEFAULT_GRID_H = 40
@@ -212,7 +213,9 @@ class Renderer:
             self._glyph_cache[key] = surf
         return surf
 
-    def draw(self, grid: Grid, *, state=None, show_logbook: bool = False) -> None:
+    def draw(
+        self, grid: Grid, *, state: AquariumState | None = None, show_logbook: bool = False
+    ) -> None:
         canvas = self._canvas
         # Background: vertical gradient if configured, else flat color.
         if self._gradient_surface is not None:
@@ -247,7 +250,9 @@ class Renderer:
 
         pygame.display.flip()
 
-    def _draw_overlays(self, canvas: pygame.Surface, state, show_logbook: bool) -> None:
+    def _draw_overlays(
+        self, canvas: pygame.Surface, state: AquariumState, show_logbook: bool
+    ) -> None:
         """Draw event banner, lore line, logbook overlay, CRT scanlines."""
         # Event banner (briefly shown at top of grid when an event starts).
         eff = state.event_effects
@@ -299,7 +304,7 @@ class Renderer:
             return
         canvas.blit(surf, (col * self.cell_w, row * self.cell_h))
 
-    def _draw_logbook(self, canvas: pygame.Surface, state) -> None:
+    def _draw_logbook(self, canvas: pygame.Surface, state: AquariumState) -> None:
         from .logbook import KNOWN_ENTRIES
 
         entries = state.logbook.all_entries()
