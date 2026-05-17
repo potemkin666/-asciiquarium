@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: Asciiquarium-linux
+            ext: ""
+          - os: macos-latest
+            artifact: Asciiquarium-macos
+            ext: ".app"
+          - os: windows-latest
+            artifact: Asciiquarium-windows
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[build]"
+
+      - name: Generate macOS icon (.icns)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          ASSETS=src/asciiquarium/assets
+          mkdir -p "$ASSETS/icon.iconset"
+          for sz in 16 32 64 128 256 512; do
+            sips -z $sz $sz "$ASSETS/icon.png" --out "$ASSETS/icon.iconset/icon_${sz}x${sz}.png" >/dev/null
+          done
+          iconutil -c icns -o "$ASSETS/icon.icns" "$ASSETS/icon.iconset"
+          rm -rf "$ASSETS/icon.iconset"
+
+      - name: Build with PyInstaller
+        shell: bash
+        run: |
+          python -m PyInstaller --clean --noconfirm packaging/asciiquarium.spec
+          ls -la dist
+
+      - name: Package Linux artifact
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p staging/Asciiquarium
+          cp dist/Asciiquarium staging/Asciiquarium/
+          cp packaging/asciiquarium.desktop staging/Asciiquarium/
+          cp src/asciiquarium/assets/icon.png staging/Asciiquarium/asciiquarium.png
+          cp README.md LICENSE CREDITS.md staging/Asciiquarium/
+          (cd staging && tar -czf ../${{ matrix.artifact }}.tar.gz Asciiquarium)
+
+      - name: Package macOS artifact
+        if: runner.os == 'macOS'
+        run: |
+          (cd dist && zip -r -y ../${{ matrix.artifact }}.zip Asciiquarium.app)
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $staging = "staging/Asciiquarium"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item dist/Asciiquarium.exe $staging/
+          Copy-Item README.md, LICENSE, CREDITS.md $staging/
+          Compress-Archive -Path $staging/* -DestinationPath "${{ matrix.artifact }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.zip
+          if-no-files-found: ignore
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false

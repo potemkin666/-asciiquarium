@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Asciiquarium
+GenericName=ASCII Aquarium
+Comment=A self-contained ASCII aquarium animation
+Exec=Asciiquarium
+Icon=asciiquarium
+Terminal=false
+Categories=Game;ArcadeGame;
+Keywords=ascii;aquarium;animation;fish;
+StartupNotify=true
