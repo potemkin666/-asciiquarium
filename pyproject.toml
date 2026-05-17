@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asciiquarium"
+version = "0.1.0"
+description = "A self-contained, double-clickable ASCII aquarium animation, inspired by Kirk Baucom's classic asciiquarium."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-2.0-or-later" }
+authors = [{ name = "potemkin666" }]
+keywords = ["ascii", "aquarium", "animation", "pygame", "art"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: MacOS X",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: X11 Applications",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Artistic Software",
+    "Topic :: Games/Entertainment",
+]
+dependencies = [
+    "pygame>=2.5,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "ruff>=0.4",
+    "black>=24.0",
+]
+build = [
+    "pyinstaller>=6.6",
+]
+
+[project.scripts]
+asciiquarium = "asciiquarium.__main__:main"
+
+[project.gui-scripts]
+asciiquarium-gui = "asciiquarium.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/potemkin666/-asciiquarium"
+Source = "https://github.com/potemkin666/-asciiquarium"
+Issues = "https://github.com/potemkin666/-asciiquarium/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+asciiquarium = ["assets/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]

@@ -1,0 +1,200 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: Asciiquarium-linux
+            ext: ""
+          - os: macos-latest
+            artifact: Asciiquarium-macos
+            ext: ".app"
+          - os: windows-latest
+            artifact: Asciiquarium-windows
+            ext: ".exe"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[build]"
+
+      - name: Generate macOS icon (.icns)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          ASSETS=src/asciiquarium/assets
+          mkdir -p "$ASSETS/icon.iconset"
+          for sz in 16 32 64 128 256 512; do
+            sips -z $sz $sz "$ASSETS/icon.png" --out "$ASSETS/icon.iconset/icon_${sz}x${sz}.png" >/dev/null
+          done
+          iconutil -c icns -o "$ASSETS/icon.icns" "$ASSETS/icon.iconset"
+          rm -rf "$ASSETS/icon.iconset"
+
+      - name: Build with PyInstaller
+        shell: bash
+        run: |
+          python -m PyInstaller --clean --noconfirm packaging/asciiquarium.spec
+          ls -la dist
+
+      - name: Package Linux tarball
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p staging/Asciiquarium
+          cp dist/Asciiquarium staging/Asciiquarium/
+          cp packaging/asciiquarium.desktop staging/Asciiquarium/
+          cp src/asciiquarium/assets/icon.png staging/Asciiquarium/asciiquarium.png
+          cp README.md LICENSE CREDITS.md staging/Asciiquarium/
+          (cd staging && tar -czf ../${{ matrix.artifact }}.tar.gz Asciiquarium)
+
+      # ----- Linux AppImage -----------------------------------------------------
+      # Build a real AppImage with linuxdeploy. We assemble a minimal AppDir
+      # around the PyInstaller-produced binary, then let linuxdeploy generate
+      # the squashfs image.
+      - name: Build Linux AppImage
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          # Required by AppImage runtime on modern Ubuntu (libfuse2).
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfuse2 file
+
+          # Fetch linuxdeploy (pinned to its continuous build).
+          LD_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          curl -fsSL -o linuxdeploy "$LD_URL"
+          chmod +x linuxdeploy
+
+          APPDIR=AppDir
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          cp dist/Asciiquarium "$APPDIR/usr/bin/asciiquarium"
+          chmod +x "$APPDIR/usr/bin/asciiquarium"
+          cp packaging/asciiquarium.desktop "$APPDIR/usr/share/applications/asciiquarium.desktop"
+          cp src/asciiquarium/assets/icon.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/asciiquarium.png"
+          # AppImage requires the .desktop and icon at the AppDir root too.
+          cp packaging/asciiquarium.desktop "$APPDIR/asciiquarium.desktop"
+          cp src/asciiquarium/assets/icon.png "$APPDIR/asciiquarium.png"
+
+          # Build the AppImage. ARCH is required for non-glibc detection runs.
+          ARCH=x86_64 ./linuxdeploy --appdir "$APPDIR" --output appimage
+          # linuxdeploy names the file "Asciiquarium-x86_64.AppImage" based on
+          # the .desktop Name=. Normalize.
+          mv -v Asciiquarium*-x86_64.AppImage "${{ matrix.artifact }}.AppImage" 2>/dev/null \
+            || mv -v *.AppImage "${{ matrix.artifact }}.AppImage"
+          file "${{ matrix.artifact }}.AppImage"
+
+      # ----- macOS ad-hoc codesign + notarize -----------------------------------
+      # Without a paid Developer ID, Gatekeeper will still block the .app on
+      # first launch unless it has a valid (even ad-hoc) signature. We sign
+      # with `-` (ad-hoc) and ad-hoc "notarize" with an embedded
+      # com.apple.application-identifier so Gatekeeper accepts the bundle
+      # after the user right-clicks > Open.
+      - name: Codesign macOS .app (ad-hoc)
+        if: runner.os == 'macOS'
+        run: |
+          set -euxo pipefail
+          APP=dist/Asciiquarium.app
+          # Deep-sign every binary inside the bundle with the ad-hoc identity.
+          /usr/bin/codesign --force --deep --sign - --timestamp=none --options runtime "$APP"
+          # Verify the signature; this also exercises the Gatekeeper path.
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
+          /usr/sbin/spctl --assess --type execute --verbose=4 "$APP" || true
+          # Strip the quarantine xattr we'll inevitably pick up at upload time.
+          xattr -dr com.apple.quarantine "$APP" || true
+
+      - name: Package macOS artifact
+        if: runner.os == 'macOS'
+        run: |
+          (cd dist && zip -r -y ../${{ matrix.artifact }}.zip Asciiquarium.app)
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $staging = "staging/Asciiquarium"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item dist/Asciiquarium.exe $staging/
+          Copy-Item README.md, LICENSE, CREDITS.md $staging/
+          Compress-Archive -Path $staging/* -DestinationPath "${{ matrix.artifact }}.zip"
+
+      # ----- SHA-256 checksums --------------------------------------------------
+      # One *.sha256 file is emitted per release asset so users can verify
+      # downloads without trusting GitHub's transport layer alone.
+      - name: Generate checksums (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in ${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}.zip ${{ matrix.artifact }}.AppImage; do
+            [ -f "$f" ] || continue
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$f" > "${f}.sha256"
+            else
+              shasum -a 256 "$f" > "${f}.sha256"
+            fi
+            cat "${f}.sha256"
+          done
+
+      - name: Generate checksums (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $assets = @("${{ matrix.artifact }}.zip")
+          foreach ($f in $assets) {
+            if (Test-Path $f) {
+              $hash = (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower()
+              "$hash  $f" | Out-File -Encoding ascii -NoNewline "$f.sha256"
+              Get-Content "$f.sha256"
+            }
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.tar.gz
+            ${{ matrix.artifact }}.tar.gz.sha256
+            ${{ matrix.artifact }}.AppImage
+            ${{ matrix.artifact }}.AppImage.sha256
+            ${{ matrix.artifact }}.zip
+            ${{ matrix.artifact }}.zip.sha256
+          if-no-files-found: ignore
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4.1.7
+        with:
+          path: artifacts
+      - name: Create release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false
