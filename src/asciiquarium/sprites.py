@@ -623,3 +623,319 @@ SHISHI_ODOSHI_TIPPED = SpriteArt(
 # Seaweed alternates for ink-wash mode: shaded with the block characters
 # ░ ▒ ▓ so it reads as a sumi-e brush stroke rather than line art.
 INKWASH_SEAWEED_GLYPHS: tuple[str, str, str] = ("░", "▒", "▓")
+
+
+# ---------------------------------------------------------------------------
+# Rare creatures (Abyssarium)
+# ---------------------------------------------------------------------------
+
+# Giant squid: tentacles drifting in the deep mid-water band.
+GIANT_SQUID = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+       _____
+      /     \
+     ( O   O )
+      \_____/
+      / | | \
+     ( /| |\ )
+      / | | \
+     (  | |  )
+""",
+        mask=r"""
+       MMMMM
+      MMMMMMM
+     MWMMMMWM
+      MMMMMMM
+      MMMMMMM
+     MMMMMMMM
+      MMMMMMM
+     MMMMMMMM
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+       _____
+      /     \
+     ( O   O )
+      \_____/
+      / | | \
+     ( /| |\ )
+      / | | \
+     (  | |  )
+""",
+        mask=r"""
+       MMMMM
+      MMMMMMM
+     MWMMMMWM
+      MMMMMMM
+      MMMMMMM
+     MMMMMMMM
+      MMMMMMM
+     MMMMMMMM
+""",
+    ),
+)
+
+
+# Ghost whale: a paler whale silhouette that drifts slowly across the upper band.
+GHOST_WHALE = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+        .-----:::
+      .'         `.
+,---/   .   (o)    \
+\__/                \__
+""",
+        mask=r"""
+        WWWWWWWWW
+      WW         WW
+WWWWWW   W   W      WW
+WWWW                WWWW
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+     :::-----.
+   .'         `.
+  /    (o)   .   \---,
+__/                \__/
+""",
+        mask=r"""
+     WWWWWWWWW
+   WW         WW
+  WW   W   W      WWWWWW
+WWWW                WWWW
+""",
+    ),
+)
+
+
+# Skeletal coelacanth: bone-pale, archaic-looking outline.
+SKELETAL_COELACANTH = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+    .---._
+   /|||||| `-._
+  ( | | | | o  )>
+   \|||||| _.-'
+    `---'
+""",
+        mask=r"""
+    WWWWWWW
+   WWWWWWWWWWWW
+  WWWWWWWWWWWkWW
+   WWWWWWWWWWWW
+    WWWWW
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+        _.---.
+    _.-' ||||||\
+   <(  o | | | | )
+    `-._ ||||||/
+         `---'
+""",
+        mask=r"""
+        WWWWWWW
+    WWWWWWWWWWWW
+   WWkWWWWWWWWWWW
+    WWWWWWWWWWWW
+         WWWWW
+""",
+    ),
+)
+
+
+# Deep-sea angel: a translucent angelfish silhouette with a lantern.
+DEEP_SEA_ANGEL = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+       __
+   ___/  \___
+  /     o    \*
+  \____  ____/
+       \/
+""",
+        mask=r"""
+       CC
+   CCCCCCCCCC
+  CCCCCYCCCCCY
+  CCCCCCCCCCCC
+       CC
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+        __
+    ___/  \___
+ *  /    o    \
+   \____  ____/
+        \/
+""",
+        mask=r"""
+        CC
+    CCCCCCCCCC
+ Y  CCCCYCCCCC
+   CCCCCCCCCCCC
+        CC
+""",
+    ),
+)
+
+
+# Submarine wreck: a long-dead silhouette that drifts very slowly.
+SUBMARINE_WRECK = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+        ___
+       |   |__________
+   ____|              \
+  /  o   o   o   o   o |
+  \____________________/
+""",
+        mask=r"""
+        kkk
+       kkkkkkkkkkkkkkk
+   kkkkkkkkkkkkkkkkkkkkk
+  kkRkkkRkkkRkkkRkkkRkkk
+  kkkkkkkkkkkkkkkkkkkkk
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+              ___
+   __________|   |
+  /              |____
+  | o   o   o   o   o  \
+  \____________________/
+""",
+        mask=r"""
+              kkk
+       kkkkkkkkkkkkkkk
+   kkkkkkkkkkkkkkkkkkkkk
+  kkRkkkRkkkRkkkRkkkRkkk
+  kkkkkkkkkkkkkkkkkkkkk
+""",
+    ),
+)
+
+
+# "The thing below": a giant unsettling silhouette that surfaces from the abyss.
+THE_THING_BELOW = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+  __        __        __
+ (  )      (  )      (  )
+  \/        \/        \/
+   \________||________/
+    \  ______||______ /
+     \/              \/
+""",
+        mask=r"""
+  kk        kk        kk
+ Rkk      Rkkkk      Rkk
+  kk        kk        kk
+   kkkkkkkkkkkkkkkkkkkkkk
+    kkkkkkkkkkkkkkkkkkkk
+     kkkkkkkkkkkkkkkkkk
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+  __        __        __
+ (  )      (  )      (  )
+  \/        \/        \/
+   \________||________/
+    \  ______||______ /
+     \/              \/
+""",
+        mask=r"""
+  kk        kk        kk
+ Rkk      Rkkkk      Rkk
+  kk        kk        kk
+   kkkkkkkkkkkkkkkkkkkkkk
+    kkkkkkkkkkkkkkkkkkkk
+     kkkkkkkkkkkkkkkkkk
+""",
+    ),
+)
+
+
+# Black koi: the night-time, unsettling cousin of the regular koi pool.
+BLACK_KOI = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+   ___
+  /. o\___
+ ( o O o )>
+  \___,_/
+""",
+        mask=r"""
+   kkk
+  kkkkkkkk
+ kkkRkkkkk
+  kkkkkkk
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+     ___
+  ___/o .\
+ <( o O o )
+   \_,___/
+""",
+        mask=r"""
+     kkk
+  kkkkkkkk
+ kkkkkRkkk
+   kkkkkkk
+""",
+    ),
+)
+
+
+# The Sleeper: the one-in-666-launches creature. Massive, silent.
+THE_SLEEPER = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+            .-------------------.
+         .-'                     `-.
+       /        ___       ___      \
+      |        (   )     (   )      |
+       \        `-'       `-'      /
+        `-._                   _.-'
+            `-----.____.------'
+""",
+        mask=r"""
+            BBBBBBBBBBBBBBBBBBBBB
+         BBBB                     BBB
+       BB        WWW       WWW      BB
+      BB        Wkk W     W kkW      BB
+       BB        WWW       WWW      BB
+        BBBB                   BBBB
+            BBBBBBBBBBBBBBBBBBBB
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+            .-------------------.
+         .-'                     `-.
+       /        ___       ___      \
+      |        (   )     (   )      |
+       \        `-'       `-'      /
+        `-._                   _.-'
+            `-----.____.------'
+""",
+        mask=r"""
+            BBBBBBBBBBBBBBBBBBBBB
+         BBBB                     BBB
+       BB        WWW       WWW      BB
+      BB        Wkk W     W kkW      BB
+       BB        WWW       WWW      BB
+        BBBB                   BBBB
+            BBBBBBBBBBBBBBBBBBBB
+""",
+    ),
+)
