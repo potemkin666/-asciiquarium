@@ -40,6 +40,23 @@ python -m pip install -e .
 python -m asciiquarium
 ```
 
+### Double-click to run (from a clone)
+
+If you'd rather not touch a terminal, the repo ships a tiny launcher per OS at
+the project root. Double-click the one for your platform — on first run it
+creates a local `.venv`, installs the package, and starts the aquarium.
+Subsequent double-clicks start instantly.
+
+| Platform | Double-click file           |
+|----------|-----------------------------|
+| Windows  | `Run-Asciiquarium.bat`      |
+| macOS    | `Run-Asciiquarium.command`  |
+| Linux    | `Run-Asciiquarium.sh`       |
+
+Python 3.9+ must already be installed. On Linux, some file managers require
+you to right-click the script → Properties → "Allow executing as program"
+once before the first double-click.
+
 Useful flags:
 
 ```bash
