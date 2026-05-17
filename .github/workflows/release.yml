@@ -137,6 +137,65 @@ jobs:
           Copy-Item README.md, LICENSE, CREDITS.md $staging/
           Compress-Archive -Path $staging/* -DestinationPath "${{ matrix.artifact }}.zip"
 
+      # ----- Windows Inno Setup installer ---------------------------------------
+      # Produce a true double-clickable installer so non-technical users never
+      # have to unzip anything. The installer is the primary Windows release
+      # asset; the zip above is kept as a fallback for power users.
+      - name: Stage Windows installer payload
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "dist/Abyssarium"
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item dist/Asciiquarium.exe (Join-Path $stage "Abyssarium.exe")
+          Copy-Item README.md, LICENSE, CREDITS.md $stage
+          Copy-Item src/asciiquarium/assets/icon.ico (Join-Path $stage "icon.ico")
+          Get-ChildItem $stage
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Inno Setup 6 is preinstalled on most windows-latest images, but
+          # install via Chocolatey if iscc is not on PATH.
+          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue)
+          if (-not $iscc) {
+            $candidate = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            if (-not (Test-Path $candidate)) {
+              choco install innosetup --no-progress -y
+            }
+          }
+
+      - name: Compile Inno Setup installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue)
+          if ($iscc) {
+            $isccPath = $iscc.Source
+          } else {
+            $isccPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $isccPath)) {
+            throw "ISCC.exe not found; cannot build the Windows installer."
+          }
+          # Derive version from the tag (v1.2.3 -> 1.2.3); fall back to 0.0.0
+          # for workflow_dispatch runs that don't push a tag.
+          $version = "0.0.0"
+          $ref = "${{ github.ref }}"
+          if ($ref -like "refs/tags/v*") { $version = $ref.Substring("refs/tags/v".Length) }
+          Write-Host "Building installer with version $version"
+          & "$isccPath" "/DMyAppVersion=$version" "packaging\windows\abyssarium.iss"
+          $installer = "dist\installer\Abyssarium-Setup-Windows.exe"
+          if (-not (Test-Path $installer)) {
+            throw "Installer was not produced at $installer"
+          }
+          Copy-Item $installer "Abyssarium-Setup-Windows.exe"
+          (Get-FileHash -Algorithm SHA256 "Abyssarium-Setup-Windows.exe").Hash.ToLower() + "  Abyssarium-Setup-Windows.exe" `
+            | Out-File -Encoding ascii -NoNewline "Abyssarium-Setup-Windows.exe.sha256"
+          Get-Item "Abyssarium-Setup-Windows.exe"
+
       # ----- SHA-256 checksums --------------------------------------------------
       # One *.sha256 file is emitted per release asset so users can verify
       # downloads without trusting GitHub's transport layer alone.
@@ -180,6 +239,8 @@ jobs:
             ${{ matrix.artifact }}.AppImage.sha256
             ${{ matrix.artifact }}.zip
             ${{ matrix.artifact }}.zip.sha256
+            Abyssarium-Setup-Windows.exe
+            Abyssarium-Setup-Windows.exe.sha256
           if-no-files-found: ignore
 
   release:
