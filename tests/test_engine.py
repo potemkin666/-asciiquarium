@@ -82,3 +82,104 @@ def test_scene_render_z_ordering() -> None:
     g = Grid(3, 1)
     scene.render(g)
     assert g.get(0, 0) == "F"
+
+
+def test_cull_policy_kill_above_y() -> None:
+    """Sprite is despawned exactly when ``y < cull_y``."""
+    scene = Scene(20, 20)
+    s = Sprite(art=".", x=5, y=10.0, vy=-5.0, cull_policy="kill_above_y", cull_y=8.0)
+    scene.add(s)
+    # First tick: y becomes 9.0 -> still >= cull_y, alive.
+    scene.update(0.2)
+    assert s in scene.sprites
+    assert s.alive
+    # Next tick: y becomes 8.0 -> still not strictly less, alive.
+    scene.update(0.2)
+    assert s.alive
+    # Third tick: y becomes 7.0 -> y < cull_y, culled.
+    scene.update(0.2)
+    assert s not in scene.sprites
+    assert not s.alive
+
+
+def test_cull_policy_kill_below_y() -> None:
+    scene = Scene(20, 20)
+    s = Sprite(art=".", x=5, y=0.0, vy=2.0, cull_policy="kill_below_y", cull_y=5.0)
+    scene.add(s)
+    scene.update(1.0)  # y=2.0, alive
+    assert s.alive
+    scene.update(2.0)  # y=6.0, killed (>= cull_y)
+    assert not s.alive
+    assert s not in scene.sprites
+
+
+def test_cull_policy_wrap_x_wraps_off_right_edge() -> None:
+    scene = Scene(20, 10)
+    s = Sprite(art="o", x=19.0, y=5.0, vx=3.0, cull_policy="wrap_x")
+    scene.add(s)
+    scene.update(1.0)
+    # After update, x=22 -> x0 (=22) > grid width (=20) -> wrap by setting
+    # x = -sprite.width (= -1 for a 1-glyph sprite), placing the sprite
+    # just off the left edge so it sweeps back in.
+    assert s.alive
+    assert s in scene.sprites
+    assert s.x == -1.0
+
+
+def test_cull_policy_wrap_x_wraps_off_left_edge() -> None:
+    scene = Scene(20, 10)
+    s = Sprite(art="o", x=0.0, y=5.0, vx=-2.0, cull_policy="wrap_x")
+    scene.add(s)
+    scene.update(1.0)
+    # After update, x=-2 -> x1 (=-1) < 0 -> wrap by setting x = grid width,
+    # placing the sprite just off the right edge so it sweeps back in.
+    assert s.alive
+    assert s.x == 20.0
+
+
+def test_cull_policy_wrap_x_still_killed_when_off_vertically() -> None:
+    scene = Scene(20, 10)
+    s = Sprite(art="o", x=5.0, y=20.0, cull_policy="wrap_x")
+    scene.add(s)
+    scene.update(0.01)
+    assert not s.alive
+
+
+def test_scene_max_sprites_caps_unprotected_spawns() -> None:
+    scene = Scene(20, 10, max_sprites=3)
+    scene.add(Sprite(art="a", tag="bubble"))
+    scene.add(Sprite(art="b", tag="bubble"))
+    scene.add(Sprite(art="c", tag="bubble"))
+    # Adding a 4th unprotected sprite should evict the oldest.
+    fourth = Sprite(art="d", tag="bubble")
+    scene.add(fourth)
+    live = [s for s in scene.sprites if s.alive]
+    assert len(live) <= 3
+    assert fourth.alive
+    # The first-added sprite should have been evicted.
+    arts = [s.art for s in live]
+    assert "a" not in arts
+
+
+def test_scene_max_sprites_protects_decor_and_fish() -> None:
+    scene = Scene(20, 10, max_sprites=2)
+    fish = scene.add(Sprite(art="F", tag="fish"))
+    castle = scene.add(Sprite(art="C", tag="castle"))
+    # No room for a particle, and nothing to evict -> refuse the add.
+    bubble = Sprite(art=".", tag="bubble")
+    scene.add(bubble)
+    assert fish.alive
+    assert castle.alive
+    assert not bubble.alive
+    assert bubble not in scene.sprites
+
+
+def test_scene_max_sprites_evicts_oldest_unprotected_before_dropping() -> None:
+    scene = Scene(20, 10, max_sprites=2)
+    scene.add(Sprite(art="F", tag="fish"))  # protected
+    bubble1 = scene.add(Sprite(art=".", tag="bubble"))
+    # Cap reached. New bubble should evict bubble1 (oldest non-protected).
+    bubble2 = Sprite(art=".", tag="bubble")
+    scene.add(bubble2)
+    assert not bubble1.alive
+    assert bubble2.alive
