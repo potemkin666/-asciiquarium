@@ -14,6 +14,7 @@ import pygame
 from . import colors
 from .aquarium import BIOMES, Aquarium, AquariumOptions
 from .engine import Grid
+from .state import AquariumState
 
 DEFAULT_GRID_W = 132
 DEFAULT_GRID_H = 40
@@ -212,7 +213,9 @@ class Renderer:
             self._glyph_cache[key] = surf
         return surf
 
-    def draw(self, grid: Grid) -> None:
+    def draw(
+        self, grid: Grid, *, state: AquariumState | None = None, show_logbook: bool = False
+    ) -> None:
         canvas = self._canvas
         # Background: vertical gradient if configured, else flat color.
         if self._gradient_surface is not None:
@@ -232,6 +235,10 @@ class Renderer:
                 surf = self._glyph(glyph, row_colors[x])
                 canvas.blit(surf, (x * cw, py))
 
+        # ---- Overlays (Abyssarium) ----
+        if state is not None:
+            self._draw_overlays(canvas, state, show_logbook)
+
         # One blit from canvas to the (possibly resized) display surface.
         screen = self.screen
         screen.fill(colors.BACKGROUND)
@@ -242,6 +249,91 @@ class Renderer:
         screen.blit(canvas, (ox, oy))
 
         pygame.display.flip()
+
+    def _draw_overlays(
+        self, canvas: pygame.Surface, state: AquariumState, show_logbook: bool
+    ) -> None:
+        """Draw event banner, lore line, logbook overlay, CRT scanlines."""
+        # Event banner (briefly shown at top of grid when an event starts).
+        eff = state.event_effects
+        if eff.banner and state.event_scheduler.active is not None:
+            remaining = state.event_scheduler.active.remaining
+            duration = state.event_scheduler.active.duration
+            # Only show the big banner during the first 4 seconds.
+            if duration - remaining < 4.0:
+                self._draw_text_line(canvas, eff.banner, row=1, col=2, color=(255, 220, 120))
+        # Persistent small event overlay while active.
+        if eff.overlay_text and state.event_scheduler.active is not None:
+            self._draw_text_line(canvas, eff.overlay_text, row=2, col=2, color=(180, 180, 200))
+        # Lore line (visible window controlled by lore.visible_for).
+        if state.lore.pending and state.lore_visible and state.lore.visible_for > 0:
+            self._draw_text_line(
+                canvas,
+                state.lore.pending.text,
+                row=max(0, self.grid_h - 2),
+                col=2,
+                color=(160, 200, 220),
+            )
+        # Mood indicator (bottom-left, dim).
+        mood_text = f"[{state.mood}]"
+        self._draw_text_line(
+            canvas, mood_text, row=max(0, self.grid_h - 1), col=2, color=(100, 110, 130)
+        )
+        # Logbook overlay.
+        if show_logbook:
+            self._draw_logbook(canvas, state)
+        # CRT scanlines (nightwatch).
+        if state.crt_scanlines:
+            self._draw_scanlines(canvas)
+
+    def _draw_text_line(
+        self,
+        canvas: pygame.Surface,
+        text: str,
+        *,
+        row: int,
+        col: int,
+        color: tuple[int, int, int],
+    ) -> None:
+        if not text:
+            return
+        # Render via the same font to keep things monospaced.
+        try:
+            surf = self.font.render(text, True, color)
+        except Exception:  # pragma: no cover - defensive
+            return
+        canvas.blit(surf, (col * self.cell_w, row * self.cell_h))
+
+    def _draw_logbook(self, canvas: pygame.Surface, state: AquariumState) -> None:
+        from .logbook import KNOWN_ENTRIES
+
+        entries = state.logbook.all_entries()
+        known = sum(1 for _, _, ts in entries if ts is not None)
+        total = len(KNOWN_ENTRIES)
+        header = f"LOGBOOK  ({known}/{total})  press [k] to close"
+        rows = [header, ""]
+        for _key, display, ts in entries:
+            mark = "✓" if ts is not None else "?"
+            label = display if ts is not None else "?"
+            rows.append(f"  {mark}  {label}")
+        # Box background.
+        box_w = self.grid_w * self.cell_w
+        box_h = (len(rows) + 2) * self.cell_h
+        overlay = pygame.Surface((box_w, box_h))
+        overlay.set_alpha(220)
+        overlay.fill((10, 12, 20))
+        canvas.blit(overlay, (0, 2 * self.cell_h))
+        for i, line in enumerate(rows):
+            self._draw_text_line(canvas, line, row=3 + i, col=2, color=(220, 220, 230))
+
+    def _draw_scanlines(self, canvas: pygame.Surface) -> None:
+        # Cheap CRT effect: every other pixel row dimmed.
+        w, h = canvas.get_size()
+        line = pygame.Surface((w, 1))
+        line.set_alpha(60)
+        line.fill((0, 0, 0))
+        for y in range(0, h, 2):
+            canvas.blit(line, (0, y))
 
     def shutdown(self) -> None:
         pygame.quit()
@@ -261,6 +353,7 @@ def run(
     *,
     options: AquariumOptions | None = None,
     rng=None,
+    crt_scanlines: bool = False,
 ) -> int:
     options = options or AquariumOptions()
     biome = BIOMES.get(options.biome)
@@ -275,9 +368,11 @@ def run(
         gradient_bottom=gradient_bottom,
     )
     aquarium = Aquarium(grid_w, grid_h, seed=seed, rng=rng, options=options)
+    aquarium.state.crt_scanlines = crt_scanlines
     grid = Grid(grid_w, grid_h)
     clock = pygame.time.Clock()
     paused = False
+    show_logbook = False
 
     try:
         while True:
@@ -297,13 +392,36 @@ def run(
                         paused = not paused
                     elif event.key == pygame.K_r:
                         aquarium = Aquarium(grid_w, grid_h, seed=seed, options=options)
+                        aquarium.state.crt_scanlines = crt_scanlines
                     elif event.key == pygame.K_f:
                         renderer.toggle_fullscreen()
+                    elif event.key == pygame.K_SPACE:
+                        aquarium.drop_food()
+                    elif event.key == pygame.K_s:
+                        aquarium.emit_sonar()
+                    elif event.key == pygame.K_l:
+                        aquarium.state.lore_visible = not aquarium.state.lore_visible
+                    elif event.key == pygame.K_m:
+                        aquarium.cycle_mood()
+                    elif event.key == pygame.K_b:
+                        aquarium.cycle_biome()
+                    elif event.key == pygame.K_c:
+                        # Toggle classic feel: pin calm, disable events/lore/rare.
+                        aquarium.options.enable_events = not aquarium.options.enable_events
+                        aquarium.options.enable_lore = aquarium.options.enable_events
+                        aquarium.options.enable_rare_creatures = aquarium.options.enable_events
+                        aquarium.state.events_enabled = aquarium.options.enable_events
+                        aquarium.state.lore.enabled = aquarium.options.enable_lore
+                        aquarium.state.rare_creatures_enabled = (
+                            aquarium.options.enable_rare_creatures
+                        )
+                    elif event.key == pygame.K_k:
+                        show_logbook = not show_logbook
 
             if not paused:
                 aquarium.step(dt)
 
             aquarium.scene.render(grid)
-            renderer.draw(grid)
+            renderer.draw(grid, state=aquarium.state, show_logbook=show_logbook)
     finally:
         renderer.shutdown()

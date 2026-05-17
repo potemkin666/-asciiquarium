@@ -8,6 +8,42 @@ from dataclasses import dataclass, field
 
 from . import sprites as art
 from .engine import Scene, Sprite
+from .events import EventScheduler  # re-exported for tests
+from .logbook import Logbook, in_memory
+from .moods import (
+    CALM,
+    get_mood,
+    pick_next_mood,
+)
+from .state import AquariumState
+
+__all__ = [
+    "Aquarium",
+    "AquariumOptions",
+    "BIOMES",
+    "BiomeSpec",
+    "DEPTH_BIG",
+    "DEPTH_BUBBLE",
+    "DEPTH_CASTLE",
+    "DEPTH_FISH",
+    "DEPTH_FOREGROUND",
+    "DEPTH_SAKURA",
+    "DEPTH_SEAWEED",
+    "DEPTH_TORII",
+    "DEPTH_TURTLE",
+    "DEPTH_WATERLINE",
+    "EventScheduler",
+    "add_background",
+    "add_bubble",
+    "add_big_fish",
+    "add_fish",
+    "add_rare_creature",
+    "add_shark",
+    "add_ship",
+    "add_sakura_petal",
+    "add_turtle",
+    "add_whale",
+]
 
 # Depth layers (lower = drawn on top / closer to viewer)
 DEPTH_WATERLINE = 100
@@ -20,6 +56,9 @@ DEPTH_BIG = 30
 DEPTH_TURTLE = 35
 DEPTH_SAKURA = 45
 DEPTH_FOREGROUND = 10
+DEPTH_RARE = 25  # rare creatures sit between BIG and FISH visually
+DEPTH_FOOD = 38
+DEPTH_SONAR = 8  # sonar ring is one of the topmost overlays
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +190,8 @@ class _Spawner:
     next_clack: float = 30.0
     # Frame swap timer used to briefly show the tipped frame after a clack.
     shishi_tipped_for: float = 0.0
+    # Rare-creature spawn cooldown (Abyssarium). Starts long; resets per-spawn.
+    next_rare: float = 90.0
 
 
 def _pick_fish(rng: random.Random, include_koi: bool = False) -> art.DirectionalSprite:
@@ -348,6 +389,231 @@ def add_sakura_petal(scene: Scene, rng: random.Random) -> Sprite:
 
 
 # ---------------------------------------------------------------------------
+# Rare creatures (Abyssarium)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RareCreatureSpec:
+    """Static description of a rare creature variant."""
+
+    key: str  # logbook key
+    sprite: art.DirectionalSprite
+    base_weight: float
+    speed_range: tuple[float, float]
+    depth: int = DEPTH_RARE
+    # Vertical band: 0.0 = top of underwater zone, 1.0 = floor.
+    band_top: float = 0.2
+    band_bottom: float = 0.9
+    # Mood/biome biases: multiplied into ``base_weight`` when matching.
+    mood_bias: tuple[str, ...] = ()
+    biome_bias: tuple[str, ...] = ()
+    # Optional gate: a callable returning True if this creature is eligible
+    # given the current :class:`AquariumState`. Used by "The Sleeper".
+    eligible: object = None  # type: ignore[assignment]
+
+
+def _sleeper_eligible(state: AquariumState) -> bool:
+    # Eligible only when launch_count is a multiple of 666 (1-in-666 across
+    # launches, not 1-in-666 per second). The renderer bumps the counter at
+    # startup.
+    return state.launch_count > 0 and state.launch_count % 666 == 0
+
+
+RARE_CREATURES: tuple[RareCreatureSpec, ...] = (
+    RareCreatureSpec(
+        key="giant_squid",
+        sprite=art.GIANT_SQUID,
+        base_weight=1.0,
+        speed_range=(1.5, 2.5),
+        band_top=0.5,
+        band_bottom=0.85,
+        mood_bias=("abyssal", "haunted"),
+        biome_bias=("abyss", "trench"),
+    ),
+    RareCreatureSpec(
+        key="ghost_whale",
+        sprite=art.GHOST_WHALE,
+        base_weight=1.0,
+        speed_range=(2.0, 3.5),
+        band_top=0.15,
+        band_bottom=0.35,
+        mood_bias=("haunted", "dreaming"),
+    ),
+    RareCreatureSpec(
+        key="skeletal_coelacanth",
+        sprite=art.SKELETAL_COELACANTH,
+        base_weight=0.8,
+        speed_range=(2.0, 3.0),
+        band_top=0.45,
+        band_bottom=0.8,
+        mood_bias=("abyssal", "haunted"),
+    ),
+    RareCreatureSpec(
+        key="deep_sea_angel",
+        sprite=art.DEEP_SEA_ANGEL,
+        base_weight=1.2,
+        speed_range=(2.5, 4.0),
+        band_top=0.35,
+        band_bottom=0.7,
+        mood_bias=("bioluminescent", "dreaming"),
+    ),
+    RareCreatureSpec(
+        key="submarine_wreck",
+        sprite=art.SUBMARINE_WRECK,
+        base_weight=0.5,
+        speed_range=(0.8, 1.4),
+        depth=DEPTH_BIG + 2,
+        band_top=0.65,
+        band_bottom=0.9,
+        mood_bias=("haunted", "polluted"),
+    ),
+    RareCreatureSpec(
+        key="the_thing_below",
+        sprite=art.THE_THING_BELOW,
+        base_weight=0.3,
+        speed_range=(0.6, 1.2),
+        depth=DEPTH_BIG + 3,
+        band_top=0.75,
+        band_bottom=0.95,
+        mood_bias=("abyssal", "haunted"),
+        biome_bias=("abyss", "trench"),
+    ),
+    RareCreatureSpec(
+        key="black_koi",
+        sprite=art.BLACK_KOI,
+        base_weight=0.8,
+        speed_range=(2.5, 4.5),
+        band_top=0.2,
+        band_bottom=0.7,
+        mood_bias=("haunted", "dreaming"),
+    ),
+    RareCreatureSpec(
+        key="the_sleeper",
+        sprite=art.THE_SLEEPER,
+        base_weight=10.0,  # absurdly heavy — but gated by ``eligible``
+        speed_range=(0.4, 0.8),
+        depth=DEPTH_BIG + 5,
+        band_top=0.55,
+        band_bottom=0.9,
+        eligible=_sleeper_eligible,
+    ),
+)
+
+RARE_CREATURES_BY_KEY: dict[str, RareCreatureSpec] = {c.key: c for c in RARE_CREATURES}
+
+
+def _weight_for(spec: RareCreatureSpec, state: AquariumState, biome_name: str) -> float:
+    """Combined spawn weight given current mood/biome biases."""
+    w = spec.base_weight
+    if spec.mood_bias and state.mood in spec.mood_bias:
+        w *= 2.5
+    if spec.biome_bias and biome_name in spec.biome_bias:
+        w *= 1.8
+    # Sonar pings draw rare creatures from the dark.
+    if state.sonar_pings > 0:
+        w *= 1.0 + min(2.0, state.sonar_pings * 0.15)
+    return max(0.0, w)
+
+
+def pick_rare_creature(
+    state: AquariumState,
+    rng: random.Random,
+    biome_name: str = "default",
+) -> RareCreatureSpec | None:
+    """Pick one eligible rare creature spec, or ``None`` if none qualifies."""
+    eligible: list[tuple[RareCreatureSpec, float]] = []
+    for spec in RARE_CREATURES:
+        if spec.eligible is not None and not spec.eligible(state):  # type: ignore[misc]
+            continue
+        w = _weight_for(spec, state, biome_name)
+        if w > 0:
+            eligible.append((spec, w))
+    if not eligible:
+        return None
+    total = sum(w for _, w in eligible)
+    r = rng.random() * total
+    acc = 0.0
+    for spec, w in eligible:
+        acc += w
+        if r <= acc:
+            return spec
+    return eligible[-1][0]
+
+
+def add_rare_creature(
+    scene: Scene,
+    rng: random.Random,
+    spec: RareCreatureSpec,
+) -> Sprite:
+    """Spawn the rare creature described by ``spec`` and return its sprite."""
+    direction = rng.choice((-1, 1))
+    chosen = spec.sprite.right if direction > 0 else spec.sprite.left
+    sprite = Sprite(
+        art=chosen.art,
+        mask=chosen.mask,
+        depth=spec.depth,
+        tag=f"rare:{spec.key}",
+    )
+    sprite.vx = direction * rng.uniform(*spec.speed_range)
+    if direction > 0:
+        sprite.x = -sprite.width
+    else:
+        sprite.x = scene.width
+    # Convert (band_top, band_bottom) fractions into the underwater band.
+    waterline_h = len(art.WATERLINE_SEGMENTS) + 5
+    floor = max(waterline_h + 1, scene.height - 2)
+    span = max(1, floor - waterline_h - sprite.height)
+    y0 = waterline_h + int(span * spec.band_top)
+    y1 = waterline_h + max(int(span * spec.band_bottom), int(span * spec.band_top) + 1)
+    y1 = min(y1, max(waterline_h, floor - sprite.height))
+    if y1 < y0:
+        y0, y1 = y1, y0
+    sprite.y = rng.randint(int(y0), int(y1))
+    scene.add(sprite)
+    return sprite
+
+
+# ---------------------------------------------------------------------------
+# Food / sonar entities
+# ---------------------------------------------------------------------------
+
+
+def add_food(scene: Scene, x: float, y: float) -> Sprite:
+    """Drop a food pellet that sinks slowly."""
+    sprite = Sprite(
+        art="*",
+        mask="Y",
+        x=float(x),
+        y=float(y),
+        vy=2.0,
+        depth=DEPTH_FOOD,
+        tag="food",
+        cull_policy="kill_below_y",
+        cull_y=float(max(0, scene.height - 1)),
+    )
+    scene.add(sprite)
+    return sprite
+
+
+def add_sonar_ring(scene: Scene, x: float, y: float) -> Sprite:
+    """Expanding sonar ring rendered as concentric `(` / `)` glyphs (~1.5s)."""
+    sprite = Sprite(
+        art="O",
+        mask="C",
+        x=float(x),
+        y=float(y),
+        depth=DEPTH_SONAR,
+        tag="sonar",
+    )
+    # The ring uses a custom lifetime stored on the sprite via cull_y as
+    # countdown seconds; we tick it in Aquarium._update_sonar.
+    sprite.cull_y = 1.5
+    sprite.cull_policy = "offscreen"
+    return scene.add(sprite)
+
+
+# ---------------------------------------------------------------------------
 # Aquarium driver
 # ---------------------------------------------------------------------------
 
@@ -471,6 +737,17 @@ class AquariumOptions:
     enable_bell: bool = True
     # File-like object used for the terminal bell; injectable for tests.
     bell_stream: object = field(default=None)
+    # ---- Abyssarium feature toggles (default False so classic mode wins) ----
+    enable_moods: bool = False
+    enable_events: bool = False
+    enable_rare_creatures: bool = False
+    enable_lore: bool = False
+    initial_mood: str = CALM
+    mood_pinned: bool = True
+    # Persistent launch count (passed in by CLI). Powers the "1-in-666" gate.
+    launch_count: int = 0
+    # Logbook (defaults to a no-disk one; CLI swaps in real one).
+    logbook: Logbook | None = None
 
 
 class Aquarium:
@@ -515,6 +792,22 @@ class Aquarium:
             if self.options.fish_bob and spr.tag in ("fish", "koi"):
                 _enable_bob(spr, self.rng)
 
+        # Build the central state. All Abyssarium-style behaviour is gated
+        # by feature flags here so the legacy ("classic") code path is
+        # bit-identical to before.
+        self.state: AquariumState = AquariumState(rng=self.rng)
+        self.state.mood = self.options.initial_mood
+        self.state.mood_pinned = self.options.mood_pinned
+        self.state.events_enabled = self.options.enable_events
+        self.state.rare_creatures_enabled = self.options.enable_rare_creatures
+        self.state.lore.enabled = self.options.enable_lore
+        self.state.event_scheduler.enabled = self.options.enable_events
+        self.state.launch_count = self.options.launch_count
+        if self.options.logbook is not None:
+            self.state.logbook = self.options.logbook
+        else:
+            self.state.logbook = in_memory()
+
     @property
     def width(self) -> int:
         return self.scene.width
@@ -530,6 +823,151 @@ class Aquarium:
         self._update_caustics()
         if self.options.japanese and self.options.enable_bell:
             self._update_shishi_odoshi(dt)
+        # ---- Abyssarium update hooks (no-ops unless enabled) ----
+        self.state.sim_time += dt
+        if self.options.enable_moods and not self.state.mood_pinned:
+            self._update_mood(dt)
+        if self.options.enable_events:
+            self._update_events(dt)
+        if self.options.enable_lore:
+            self._update_lore(dt)
+        if self.options.enable_rare_creatures:
+            self._update_rare_creatures(dt)
+        self._update_food_and_sonar(dt)
+        # Track first-seen entries for the logbook.
+        self._record_logbook_sightings()
+
+    # -- Abyssarium helpers -------------------------------------------------
+
+    def _update_mood(self, dt: float) -> None:
+        st = self.state
+        st.mood_clock -= dt
+        if st.mood_clock > 0:
+            return
+        st.mood = pick_next_mood(st.mood, self.rng)
+        st.mood_clock = st.mood_period
+
+    def _update_events(self, dt: float) -> None:
+        st = self.state
+        mood = get_mood(st.mood)
+        # If event running, just tick; otherwise consider starting one.
+        st.event_scheduler.tick(st, dt, self.rng, mood.allowed_events)
+
+    def _update_lore(self, dt: float) -> None:
+        from .lore import tick as lore_tick
+
+        st = self.state
+        mood = get_mood(st.mood)
+        lore_tick(st.lore, dt, self.rng, preferred_tags=mood.preferred_lore_tags)
+
+    def _update_rare_creatures(self, dt: float) -> None:
+        sp = self._spawner
+        sp.next_rare -= dt
+        if sp.next_rare > 0:
+            return
+        # Limit to one rare creature on-screen at a time to keep the
+        # "you witnessed something" pacing intact.
+        existing = [s for s in self.scene.sprites if s.alive and s.tag.startswith("rare:")]
+        if existing:
+            sp.next_rare = 30.0
+            return
+        mood_mult = get_mood(self.state.mood).rare_creature_mult
+        event_mult = self.state.event_effects.rare_creature_mult
+        combined_mult = max(0.1, mood_mult * event_mult)
+        spec = pick_rare_creature(self.state, self.rng, biome_name=self.biome.name)
+        if spec is None:
+            sp.next_rare = 60.0
+            return
+        add_rare_creature(self.scene, self.rng, spec)
+        # Cooldown: longer base when mood discourages rare creatures.
+        base = self.rng.uniform(120.0, 240.0)
+        sp.next_rare = base / combined_mult
+
+    def _update_food_and_sonar(self, dt: float) -> None:
+        st = self.state
+        if st.food_visible_for > 0:
+            st.food_visible_for = max(0.0, st.food_visible_for - dt)
+        # Tick down sonar ring sprites; expand them slowly.
+        for s in list(self.scene.sprites):
+            if s.tag == "sonar" and s.alive:
+                # Reuse cull_y as countdown timer (set by add_sonar_ring).
+                s.cull_y -= dt
+                if s.cull_y <= 0:
+                    s.alive = False
+
+    def _record_logbook_sightings(self) -> None:
+        st = self.state
+        # Common creatures
+        for tag in ("fish", "turtle", "koi"):
+            if self.scene.sprites_with_tag(tag):
+                st.logbook.record(tag)
+        # Rare creatures: tag is "rare:<key>"
+        for s in self.scene.sprites:
+            if s.alive and s.tag.startswith("rare:"):
+                st.logbook.record(s.tag[len("rare:") :])
+        # Events
+        if st.event_scheduler.active is not None:
+            st.logbook.record(st.event_scheduler.active.name)
+
+    # -- food / sonar mutators (called from renderer) -----------------------
+
+    def drop_food(self, x: float | None = None, y: float | None = None) -> Sprite | None:
+        """Drop a food pellet; fish briefly steer toward it."""
+        waterline_h = len(art.WATERLINE_SEGMENTS) + 5
+        if x is None:
+            x = self.rng.uniform(2, max(3, self.width - 3))
+        if y is None:
+            y = float(waterline_h)
+        pellet = add_food(self.scene, x, y)
+        self.state.record_food(x, y)
+        # Steer fish toward the pellet for a few ticks.
+        for s in self.scene.sprites:
+            if s.tag in ("fish", "koi") and s.alive:
+                dx = pellet.x - s.x
+                if dx == 0:
+                    continue
+                desired = 1.0 if dx > 0 else -1.0
+                # Flip direction if currently moving away.
+                if (desired > 0 and s.vx < 0) or (desired < 0 and s.vx > 0):
+                    s.vx = -s.vx
+        return pellet
+
+    def emit_sonar(self, x: float | None = None, y: float | None = None) -> Sprite | None:
+        """Emit a sonar ping. Fish briefly scatter; rare creature weight rises."""
+        if x is None:
+            x = self.width / 2.0
+        if y is None:
+            y = self.height / 2.0
+        ring = add_sonar_ring(self.scene, x, y)
+        self.state.record_sonar()
+        # Brief scatter: invert vx of fish near the ping centre.
+        for s in self.scene.sprites:
+            if s.tag in ("fish", "koi") and s.alive:
+                # Flip the closer half so they appear to flee outward.
+                if (s.x < x and s.vx > 0) or (s.x > x and s.vx < 0):
+                    s.vx = -s.vx
+        return ring
+
+    def cycle_mood(self) -> str:
+        from .moods import ALL_MOODS
+
+        try:
+            i = ALL_MOODS.index(self.state.mood)
+        except ValueError:
+            i = 0
+        self.state.mood = ALL_MOODS[(i + 1) % len(ALL_MOODS)]
+        self.state.mood_pinned = True
+        return self.state.mood
+
+    def cycle_biome(self) -> str:
+        names = sorted(BIOMES.keys())
+        try:
+            i = names.index(self.biome.name)
+        except ValueError:
+            i = 0
+        next_name = names[(i + 1) % len(names)]
+        self.biome = BIOMES[next_name]
+        return next_name
 
     # -- helpers ------------------------------------------------------------
 
