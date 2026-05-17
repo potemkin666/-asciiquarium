@@ -13,6 +13,15 @@ native binaries so end users don't need to install Python or a terminal.
 
 Grab the latest from the [Releases](../../releases) page.
 
+## Install on Windows
+
+1. Go to the [Releases](../../releases) page.
+2. Download `Abyssarium-Setup-Windows.exe`.
+3. Double-click it.
+4. Launch Abyssarium from the Start Menu or Desktop shortcut.
+
+No Python required. No terminal required. No unzipping required.
+
 ## Controls
 
 | Key            | Action            |
@@ -45,16 +54,41 @@ Requires Python 3.9+ and a working compiler toolchain on your OS.
 # macOS / Linux
 ./scripts/build.sh
 
-# Windows
+# Windows (single-file .exe)
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1
+
+# Windows (staged for the Inno Setup installer at packaging/windows/abyssarium.iss)
+powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
 ```
 
 Artifacts land in `dist/`. Under the hood this runs
 [PyInstaller](https://pyinstaller.org/) with `packaging/asciiquarium.spec`.
+On Windows, `scripts\build-windows.ps1` additionally stages the executable as
+`dist\Abyssarium\Abyssarium.exe` so that
+[Inno Setup](https://jrsoftware.org/isinfo.php) can compile
+`packaging\windows\abyssarium.iss` into `Abyssarium-Setup-Windows.exe`.
 
 On every tagged release (`v*`) GitHub Actions builds all three platforms
 automatically and attaches them to a GitHub Release — see
 [`.github/workflows/release.yml`](.github/workflows/release.yml).
+
+## Developer run
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+python -m asciiquarium
+```
+
+On macOS / Linux:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+python -m asciiquarium
+```
 
 ## Development
 
