@@ -99,6 +99,12 @@ class Sprite:
     on_remove: Callable[[Sprite], None] | None = None
     tag: str = ""
     alive: bool = True
+    # Subtle sinusoidal y-axis "breathing" bob applied at draw time only.
+    # Defaults to no bob; aquarium sets this for fish-like sprites.
+    bob_amplitude: float = 0.0
+    bob_period: float = 2.0
+    bob_phase: float = 0.0
+    _bob_clock: float = 0.0
 
     _lines: list[str] = field(init=False, repr=False)
     _mask_lines: list[str] = field(init=False, repr=False)
@@ -130,6 +136,8 @@ class Sprite:
     def update(self, dt: float) -> None:
         self.x += self.vx * dt
         self.y += self.vy * dt
+        if self.bob_amplitude:
+            self._bob_clock += dt
 
     def is_offscreen(self, grid_w: int, grid_h: int, margin: int = 2) -> bool:
         x0, y0, x1, y1 = self.bbox()
@@ -139,6 +147,13 @@ class Sprite:
 
     def draw(self, grid: Grid) -> None:
         ix, iy = int(self.x), int(self.y)
+        if self.bob_amplitude:
+            import math
+
+            offset = self.bob_amplitude * math.sin(
+                (2.0 * math.pi * self._bob_clock / max(self.bob_period, 1e-6)) + self.bob_phase
+            )
+            iy += int(round(offset))
         for row, line in enumerate(self._lines):
             yy = iy + row
             mask_line = self._mask_lines[row] if row < len(self._mask_lines) else ""

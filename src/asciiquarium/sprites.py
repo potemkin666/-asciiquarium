@@ -425,3 +425,201 @@ BBBBBBBBBBBB   B      B   B B
 # ---------------------------------------------------------------------------
 
 BUBBLES: tuple[str, ...] = (".", "o", "O", "O")
+
+
+# ---------------------------------------------------------------------------
+# Japanese-themed sprites
+# ---------------------------------------------------------------------------
+
+# Koi (錦鯉 / nishikigoi). Two variants in classic kōhaku-style red+white
+# patterns over a dark outline. Color mask uses ``R`` (red), ``W`` (white),
+# and ``k`` (black) to evoke the traditional palette.
+KOI: list[DirectionalSprite] = [
+    DirectionalSprite(
+        right=SpriteArt(
+            art=r"""
+   ___
+  /. o\___
+ ( o O o )>
+  \___,_/
+""",
+            mask=r"""
+   WWW
+  WWWWWWWW
+ RkRWkRkWk
+  WWWWWWW
+""",
+        ),
+        left=SpriteArt(
+            art=r"""
+     ___
+  ___/o .\
+ <( o O o )
+   \_,___/
+""",
+            mask=r"""
+     WWW
+  WWWWWWWW
+ kWkRkWRkR
+   WWWWWWW
+""",
+        ),
+    ),
+    DirectionalSprite(
+        right=SpriteArt(
+            art=r"""
+    _____
+   /     \__
+  ( o   O   >
+   \_,_,_,_/
+""",
+            mask=r"""
+    WWWWW
+   WWRRRWWW
+  WkWRWRkRR
+   WWWWWWWW
+""",
+        ),
+        left=SpriteArt(
+            art=r"""
+     _____
+   __/     \
+  <   O   o )
+   \_,_,_,_/
+""",
+            mask=r"""
+     WWWWW
+   WWWRRRWW
+  RRkRWRWkW
+   WWWWWWWW
+""",
+        ),
+    ),
+]
+
+
+# Sea turtle. Slow-moving and reasonably large; designed for a rare event.
+TURTLE = DirectionalSprite(
+    right=SpriteArt(
+        art=r"""
+        ___..._
+   _,--'       "`-.
+ ,'.  .   .--.   . `.
+/ /|.  . .'    '. . .\
+\/_,. . .  .  . . , .|
+ \,_|_,.__'__.__,__|/
+   _/   |/   \|   \_
+""",
+        mask=r"""
+        gggggggg
+   ggggggggggggggg
+ ggGgGgggGGGGGgggGgg
+ggggGgGgGgGGGGgGgGgg
+ggGGggGgGgGgGgGgGggg
+ ggggggggggggggggggg
+   gggggGgggggGgggg
+""",
+    ),
+    left=SpriteArt(
+        art=r"""
+        _...__
+     .-'       `--._
+   .' .   .--.   .  '.
+  /. . .'    '. . .|\ \
+ |. , . .  .  . .,.\_\/
+  \|__,__.__'__,_|_,/
+   _/   |/   \|   \_
+""",
+        mask=r"""
+        ggggggg
+     gggggggggggggg
+   ggggGggGGGGgggGggg
+  ggGgGgGGGGGgGgGgggg
+ ggGgGgGgGgGgGgGGggGg
+  gggggggggggggggggg
+   gggggGgggggGgggg
+""",
+    ),
+)
+
+
+# Sakura (cherry blossom) petals: tiny single-glyph sprites that drift down
+# from above the waterline. Multiple petal glyphs and color codes give the
+# stream subtle variety.
+SAKURA_GLYPHS: tuple[str, ...] = (".", ",", "*", "'", "`")
+SAKURA_COLOR_CODES: tuple[str, ...] = ("M", "m", "W", "R")
+
+
+# Torii gate silhouette, intended to be anchored to the bottom-right corner
+# of the scene as a static background element. The mask uses ``r`` so it
+# stands out against the water like a traditional vermilion gate.
+TORII = SpriteArt(
+    art=r"""
+ ______________
+ \____________/
+  |          |
+  |==========|
+  ||        ||
+  ||        ||
+  ||        ||
+  ||        ||
+""",
+    mask=r"""
+ RRRRRRRRRRRRRR
+ RRRRRRRRRRRRRR
+  R          R
+  RRRRRRRRRRRR
+  RR        RR
+  RR        RR
+  RR        RR
+  RR        RR
+""",
+)
+
+
+# Bamboo shishi-odoshi (deer-scarer). Two frames: at rest (water filling)
+# and tipped (just clacked). The aquarium swaps frames around the audible
+# clack so the viewer sees the motion that "caused" the sound.
+SHISHI_ODOSHI_REST = SpriteArt(
+    art=r"""
+   |
+   |__
+   |  \__
+   |     \_
+   |
+  _|_
+""",
+    mask=r"""
+   g
+   ggg
+   gggggg
+   ggggggg
+   g
+  ggg
+""",
+)
+
+
+SHISHI_ODOSHI_TIPPED = SpriteArt(
+    art=r"""
+   |
+   |
+   |__
+   |  \__
+   |     \
+  _|_
+""",
+    mask=r"""
+   g
+   g
+   ggg
+   gggggg
+   gggggg
+  ggg
+""",
+)
+
+
+# Seaweed alternates for ink-wash mode: shaded with the block characters
+# ░ ▒ ▓ so it reads as a sumi-e brush stroke rather than line art.
+INKWASH_SEAWEED_GLYPHS: tuple[str, str, str] = ("░", "▒", "▓")
