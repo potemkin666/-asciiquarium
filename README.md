@@ -13,6 +13,9 @@ native binaries so end users don't need to install Python or a terminal.
 
 Grab the latest from the [Releases](../../releases) page.
 
+**Live web demo:** <https://potemkin666.github.io/-asciiquarium/> — an
+animated ASCII aquarium running entirely in your browser.
+
 ## Install on Windows
 
 1. Go to the [Releases](../../releases) page.

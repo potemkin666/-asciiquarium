@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Asciiquarium</title>
+<meta name="description" content="An animated ASCII aquarium in the browser." />
+<style>
+  :root {
+    --bg: #001020;
+    --water: #002b4d;
+    --fg: #cfe8ff;
+    --waterline: #6cc7ff;
+    --seaweed: #6dd36d;
+    --castle: #f0e060;
+    --bubble: #aee7ff;
+    --fish-1: #ff9966;
+    --fish-2: #ffd166;
+    --fish-3: #9be29b;
+    --fish-4: #ff80c0;
+    --fish-5: #80d8ff;
+    --fish-6: #c39bff;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                 "Liberation Mono", "Courier New", monospace;
+    overflow: hidden;
+    height: 100%;
+  }
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+    z-index: 5;
+    font-size: 13px;
+    color: var(--waterline);
+    text-shadow: 0 0 6px rgba(0,0,0,0.7);
+  }
+  header a {
+    color: var(--waterline);
+    text-decoration: none;
+    pointer-events: auto;
+    border-bottom: 1px dotted var(--waterline);
+  }
+  header a:hover { color: #fff; border-bottom-color: #fff; }
+  #tank {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(to bottom,
+        #001830 0%,
+        #002b4d 12%,
+        #003a66 60%,
+        #002138 100%);
+    overflow: hidden;
+  }
+  pre.layer {
+    position: absolute;
+    top: 0; left: 0;
+    margin: 0;
+    padding: 0;
+    font: inherit;
+    line-height: 1.0;
+    white-space: pre;
+    color: var(--fg);
+    pointer-events: none;
+    user-select: none;
+    will-change: contents;
+  }
+  /* z-stacking: deeper layers behind */
+  #bg     { z-index: 1; color: var(--waterline); }
+  #weed   { z-index: 2; color: var(--seaweed); }
+  #castle { z-index: 2; color: var(--castle); }
+  #bubble { z-index: 3; color: var(--bubble); }
+  #fish   { z-index: 4; }
+  /* per-fish color is set inline via spans */
+  .f1 { color: var(--fish-1); }
+  .f2 { color: var(--fish-2); }
+  .f3 { color: var(--fish-3); }
+  .f4 { color: var(--fish-4); }
+  .f5 { color: var(--fish-5); }
+  .f6 { color: var(--fish-6); }
+  .eye { color: #ffffff; }
+  noscript {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--waterline); font-size: 18px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <span>🐟 Asciiquarium — web demo</span>
+  <span>
+    <a href="https://github.com/potemkin666/-asciiquarium">source on GitHub</a>
+  </span>
+</header>
+<div id="tank">
+  <pre id="bg" class="layer"></pre>
+  <pre id="castle" class="layer"></pre>
+  <pre id="weed" class="layer"></pre>
+  <pre id="bubble" class="layer"></pre>
+  <pre id="fish" class="layer"></pre>
+</div>
+<noscript>This demo requires JavaScript to animate the aquarium.</noscript>
+<script>
+(() => {
+  "use strict";
+
+  // ---------------------------------------------------------------------
+  // Grid
+  // ---------------------------------------------------------------------
+  let COLS = 80;
+  let ROWS = 24;
+  let CELL_W = 8;
+  let CELL_H = 16;
+
+  function measureCell() {
+    const probe = document.createElement("pre");
+    probe.style.cssText =
+      "position:absolute;visibility:hidden;margin:0;padding:0;" +
+      "font-family:inherit;font-size:inherit;line-height:1.0;white-space:pre;";
+    probe.textContent = "M".repeat(40) + "\n".repeat(9) + "M";
+    document.body.appendChild(probe);
+    const r = probe.getBoundingClientRect();
+    CELL_W = r.width / 40;
+    CELL_H = r.height / 10;
+    document.body.removeChild(probe);
+  }
+
+  function resize() {
+    // Pick a font size that gives a nice grid regardless of viewport.
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    // Aim for roughly 100 columns on a typical desktop, fewer on phones.
+    const targetCols = Math.max(60, Math.min(160, Math.floor(w / 9)));
+    const fontPx = Math.max(10, Math.min(20, Math.floor(w / targetCols * 1.8)));
+    document.body.style.fontSize = fontPx + "px";
+    measureCell();
+    COLS = Math.max(40, Math.floor(w / CELL_W));
+    ROWS = Math.max(18, Math.floor(h / CELL_H));
+  }
+
+  function makeBuffer(fill = " ") {
+    const rows = new Array(ROWS);
+    for (let y = 0; y < ROWS; y++) rows[y] = new Array(COLS).fill(fill);
+    return rows;
+  }
+
+  function bufferToString(buf) {
+    const out = new Array(ROWS);
+    for (let y = 0; y < ROWS; y++) out[y] = buf[y].join("");
+    return out.join("\n");
+  }
+
+  function drawArt(buf, x, y, art) {
+    const lines = art.split("\n");
+    for (let dy = 0; dy < lines.length; dy++) {
+      const yy = y + dy;
+      if (yy < 0 || yy >= ROWS) continue;
+      const line = lines[dy];
+      for (let dx = 0; dx < line.length; dx++) {
+        const ch = line[dx];
+        if (ch === " ") continue;
+        const xx = x + dx;
+        if (xx < 0 || xx >= COLS) continue;
+        buf[yy][xx] = ch;
+      }
+    }
+  }
+
+  // Escape characters for safe insertion into HTML.
+  function esc(ch) {
+    if (ch === "&") return "&amp;";
+    if (ch === "<") return "&lt;";
+    if (ch === ">") return "&gt;";
+    return ch;
+  }
+
+  // Render a sparse list of colored sprites onto a <pre> using spans only
+  // where needed. We build per-row strings to minimize DOM operations.
+  function renderColored(target, sprites) {
+    // Build a character grid + class grid.
+    const ch = makeBuffer(" ");
+    const cl = makeBuffer(null);
+    for (const s of sprites) {
+      const lines = s.art.split("\n");
+      const maskLines = s.mask ? s.mask.split("\n") : null;
+      for (let dy = 0; dy < lines.length; dy++) {
+        const yy = Math.round(s.y) + dy;
+        if (yy < 0 || yy >= ROWS) continue;
+        const line = lines[dy];
+        const maskLine = maskLines ? (maskLines[dy] || "") : "";
+        for (let dx = 0; dx < line.length; dx++) {
+          const c = line[dx];
+          if (c === " ") continue;
+          const xx = Math.round(s.x) + dx;
+          if (xx < 0 || xx >= COLS) continue;
+          ch[yy][xx] = c;
+          const m = maskLine[dx];
+          cl[yy][xx] = (m && m !== " ") ? "eye" : s.cls;
+        }
+      }
+    }
+    // Stringify with span runs per row.
+    const rows = new Array(ROWS);
+    for (let y = 0; y < ROWS; y++) {
+      let row = "";
+      let runCls = null;
+      let runText = "";
+      const flush = () => {
+        if (!runText) return;
+        if (runCls === null) {
+          row += runText;
+        } else {
+          row += '<span class="' + runCls + '">' + runText + "</span>";
+        }
+        runText = "";
+      };
+      for (let x = 0; x < COLS; x++) {
+        const c = ch[y][x];
+        const k = cl[y][x];
+        if (k !== runCls) {
+          flush();
+          runCls = k;
+        }
+        runText += esc(c);
+      }
+      flush();
+      rows[y] = row;
+    }
+    target.innerHTML = rows.join("\n");
+  }
+
+  // ---------------------------------------------------------------------
+  // Static layers: waterline, castle, seaweed
+  // ---------------------------------------------------------------------
+  const WATERLINE_SEGMENTS = [
+    "^^^^ ^^^  ^^^   ^^^    ^^^^      ",
+    "^^^^      ^^^^     ^^^    ^^     ",
+    "^^      ^^^^      ^^^    ^^^^^^  ",
+    "^^^^   ^^^^   ^^^  ^^^^   ^^^    ",
+  ];
+
+  const CASTLE = (
+"               T~~\n" +
+"               |\n" +
+"              /^\\\n" +
+"             /   \\\n" +
+" _   _   _  /     \\  _   _   _\n" +
+"[ ]_[ ]_[ ]/ _   _ \\[ ]_[ ]_[ ]\n" +
+"|_=__-_ =_|_[ ]_[ ]_|_=-___-__|\n" +
+" | _- =  | =_ = _    |= _=   |\n" +
+" |= -[]  |- = _ =    |=  =__-|\n" +
+" |=  _   |_-=_[] _   |-_   = |\n" +
+" |=_ =[  | =_   |=  _|=_[][]_|\n" +
+" |-  - --|=_ =__|--=_=_-=_=__|\n" +
+" |=[]_-= _--=_____ =- =-=__-=|\n" +
+" |- - - = -=____===_- = =_--=|"
+  );
+
+  const SEAWEED_FRAMES = [
+    "(\n )\n(\n )\n(\n )\n(",
+    " )\n(\n )\n(\n )\n(\n )",
+  ];
+
+  function renderBackground() {
+    const buf = makeBuffer(" ");
+    // Waterline (4 rows starting at top).
+    for (let y = 0; y < WATERLINE_SEGMENTS.length; y++) {
+      const seg = WATERLINE_SEGMENTS[y];
+      let x = 0;
+      while (x < COLS) {
+        for (let i = 0; i < seg.length && x < COLS; i++, x++) {
+          if (seg[i] !== " ") buf[y][x] = seg[i];
+        }
+      }
+    }
+    document.getElementById("bg").textContent = bufferToString(buf);
+  }
+
+  function renderCastle() {
+    const buf = makeBuffer(" ");
+    const lines = CASTLE.split("\n");
+    const x = COLS - 32;
+    const y = ROWS - lines.length - 1;
+    drawArt(buf, x, y, CASTLE);
+    document.getElementById("castle").textContent = bufferToString(buf);
+  }
+
+  let seaweedFrame = 0;
+  let seaweedPositions = [];
+  function seedSeaweed() {
+    seaweedPositions = [];
+    const count = Math.max(3, Math.floor(COLS / 14));
+    for (let i = 0; i < count; i++) {
+      const x = Math.floor((i + 0.5) * (COLS / count)) +
+                Math.floor((Math.random() - 0.5) * 4);
+      const h = 4 + Math.floor(Math.random() * 4); // 4-7 segments tall
+      const phase = Math.random() < 0.5 ? 0 : 1;
+      seaweedPositions.push({ x, h, phase });
+    }
+  }
+  function renderSeaweed() {
+    const buf = makeBuffer(" ");
+    for (const w of seaweedPositions) {
+      const frame = SEAWEED_FRAMES[(seaweedFrame + w.phase) & 1];
+      const segs = frame.split("\n");
+      // Use the last `h` segments of the canonical seaweed pattern, anchored
+      // to the bottom row.
+      const lines = [];
+      for (let i = 0; i < w.h; i++) {
+        lines.push(segs[i % segs.length]);
+      }
+      const startY = ROWS - 1 - (w.h - 1);
+      drawArt(buf, w.x, startY, lines.join("\n"));
+    }
+    document.getElementById("weed").textContent = bufferToString(buf);
+  }
+
+  // ---------------------------------------------------------------------
+  // Fish
+  // ---------------------------------------------------------------------
+  // Simple ASCII fish, paired left/right facing.
+  // Each is an object with { right: art, left: art, mask: optional }.
+  // Eyes ("o" / "O") are emphasized via a mask of "e" chars where applicable.
+  const FISH_TYPES = [
+    {
+      right:
+"   \\\n" +
+"\\ /--\\\n" +
+" >=  (o>\n" +
+"/ \\__/\n" +
+"   /",
+      left:
+"  /\n" +
+" /--\\ /\n" +
+"<o)  =<\n" +
+" \\__/ \\\n" +
+"  \\",
+      maskRight:
+"   \n" +
+"\n" +
+"      e \n" +
+"\n",
+      maskLeft:
+"  \n" +
+"\n" +
+" e\n" +
+"\n",
+    },
+    {
+      right:
+"  __\n" +
+"><_'>\n" +
+"   '",
+      left:
+" __\n" +
+"<'_><\n" +
+" `",
+    },
+    {
+      right:
+"    \\:.\n" +
+"\\;,   ,;\\\\\\,,\n" +
+"  \\\\\\;;:::::::o\n" +
+"  ///;;::::::::<\n" +
+" /;` ``/////``",
+      left:
+"      .:/\n" +
+"   ,,///;,   ,;/\n" +
+" o:::::::;;///\n" +
+">::::::::;;\\\\\\\n" +
+"  ''\\\\\\\\\\'' ';\\",
+    },
+    {
+      right:
+"       \\\n" +
+"   ,_,/.\n" +
+" /'     '\\\n" +
+">=    o   >\n" +
+" \\_      /\n" +
+"   '\"\"\"\"`",
+      left:
+"     /\n" +
+"    .\\,_,\n" +
+"  /'     '\\\n" +
+" <   o    =<\n" +
+"  \\      _/\n" +
+"   `\"\"\"\"'",
+    },
+    {
+      right:
+",\\\n" +
+">>=))o>\n" +
+"'/",
+      left:
+"   /,\n" +
+"<o((=<<\n" +
+"   \\'",
+    },
+  ];
+
+  // Colors per fish chosen from a palette, rotated for variety.
+  const FISH_CLASSES = ["f1", "f2", "f3", "f4", "f5", "f6"];
+
+  function spriteSize(art) {
+    const lines = art.split("\n");
+    let w = 0;
+    for (const l of lines) w = Math.max(w, l.length);
+    return { w, h: lines.length };
+  }
+
+  const fish = [];
+  function spawnFish(initial = false) {
+    const type = FISH_TYPES[Math.floor(Math.random() * FISH_TYPES.length)];
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const art = dir > 0 ? type.right : type.left;
+    const mask = dir > 0 ? type.maskRight : type.maskLeft;
+    const size = spriteSize(art);
+    const speed = (0.06 + Math.random() * 0.12) * dir; // cols per frame
+    // Stay below the waterline (rows 0..3) and above the bottom couple rows.
+    const minY = 5;
+    const maxY = Math.max(minY + 1, ROWS - size.h - 2);
+    const y = minY + Math.floor(Math.random() * (maxY - minY + 1));
+    let x;
+    if (initial) {
+      x = Math.floor(Math.random() * (COLS - size.w));
+    } else if (dir > 0) {
+      x = -size.w;
+    } else {
+      x = COLS;
+    }
+    fish.push({
+      art, mask, x, y, dir, speed, size,
+      cls: FISH_CLASSES[Math.floor(Math.random() * FISH_CLASSES.length)],
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Bubbles
+  // ---------------------------------------------------------------------
+  const bubbles = [];
+  function spawnBubble() {
+    // Bubbles tend to rise from the bottom-half-ish.
+    const x = Math.floor(Math.random() * COLS);
+    const y = ROWS - 1 - Math.floor(Math.random() * 3);
+    bubbles.push({
+      x, y, fy: y,
+      speed: 0.15 + Math.random() * 0.15,
+      stage: 0,
+    });
+  }
+  const BUBBLE_CHARS = [".", "o", "O", "O"];
+
+  // ---------------------------------------------------------------------
+  // Main loop
+  // ---------------------------------------------------------------------
+  let lastSeaweedTick = 0;
+  let lastBubbleSpawn = 0;
+  let lastFishCheck = 0;
+
+  function tick(t) {
+    // Animate seaweed sway every ~500ms.
+    if (t - lastSeaweedTick > 500) {
+      seaweedFrame ^= 1;
+      renderSeaweed();
+      lastSeaweedTick = t;
+    }
+
+    // Spawn bubbles occasionally.
+    if (t - lastBubbleSpawn > 350 + Math.random() * 600) {
+      spawnBubble();
+      lastBubbleSpawn = t;
+    }
+
+    // Update bubbles.
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      b.fy -= b.speed;
+      b.y = Math.floor(b.fy);
+      // Grow then pop near surface.
+      const depth = ROWS - 1 - b.y;
+      b.stage = Math.min(BUBBLE_CHARS.length - 1, Math.floor(depth / 4));
+      if (b.y <= 4) bubbles.splice(i, 1);
+    }
+
+    // Update fish.
+    for (let i = fish.length - 1; i >= 0; i--) {
+      const f = fish[i];
+      f.x += f.speed;
+      if (f.dir > 0 && f.x > COLS + 2) fish.splice(i, 1);
+      else if (f.dir < 0 && f.x < -f.size.w - 2) fish.splice(i, 1);
+    }
+
+    // Keep a healthy population of fish.
+    if (t - lastFishCheck > 600) {
+      const target = Math.max(5, Math.floor(COLS / 14));
+      while (fish.length < target) spawnFish(false);
+      lastFishCheck = t;
+    }
+
+    // Render bubbles layer (single color).
+    {
+      const buf = makeBuffer(" ");
+      for (const b of bubbles) {
+        if (b.y >= 0 && b.y < ROWS && b.x >= 0 && b.x < COLS) {
+          buf[b.y][b.x] = BUBBLE_CHARS[b.stage];
+        }
+      }
+      document.getElementById("bubble").textContent = bufferToString(buf);
+    }
+
+    // Render fish layer (colored).
+    renderColored(document.getElementById("fish"), fish.map(f => ({
+      art: f.art, mask: f.mask, x: f.x, y: f.y, cls: f.cls,
+    })));
+
+    requestAnimationFrame(tick);
+  }
+
+  function rebuildScene() {
+    resize();
+    renderBackground();
+    renderCastle();
+    seedSeaweed();
+    renderSeaweed();
+    // Reset moving entities so they don't fall off-grid weirdly.
+    fish.length = 0;
+    bubbles.length = 0;
+    const initial = Math.max(5, Math.floor(COLS / 14));
+    for (let i = 0; i < initial; i++) spawnFish(true);
+  }
+
+  window.addEventListener("resize", () => {
+    rebuildScene();
+  });
+
+  rebuildScene();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
